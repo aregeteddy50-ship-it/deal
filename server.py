@@ -1,4 +1,6 @@
+
 import asyncio
+import os
 import websockets
 
 players = []
@@ -27,7 +29,6 @@ async def game(websocket):
     elif player_number == 2:
 
         await players[0].send("Player 2 has joined!")
-
         await players[1].send("Player 1 has joined!")
 
     try:
@@ -73,10 +74,12 @@ async def main():
 
     print("Starting server...")
 
+    port = int(os.environ.get("PORT", 8765))
+
     async with websockets.serve(
         game,
-        "localhost",
-        8765
+        "0.0.0.0",
+        port
     ):
 
         print("Server is running")
@@ -86,3 +89,4 @@ async def main():
 
 
 asyncio.run(main())
+
