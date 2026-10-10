@@ -2,129 +2,76 @@ import asyncio
 import os
 import websockets
 
-
-players = []
-
-player_choice = None
-player_guess = None
+waiting_players = []
+lock = asyncio.Lock()
 
 
-async def send_to_all_players(message):
-    for player in players:
-        await player.send(message)
+async def play_game(player1, player2):
+    try:
+        await player1.send("MATCH STARTED")
+        await player2.send("MATCH STARTED")
+
+        await player1.send("Choose HEADS or TAILS.")
+        await player2.send("Wait for Player 1 to choose.")
+
+        while True:
+            choice = (await player1.recv()).strip().upper()
+
+            if choice in ("HEADS", "TAILS"):
+                break
+
+            await player1.send("Type HEADS or TAILS.")
+
+        await player1.send(f"You chose {choice}.")
+        await player2.send("Guess HEADS or TAILS.")
+
+        while True:
+            guess = (await player2.recv()).strip().upper()
+
+            if guess in ("HEADS", "TAILS"):
+                break
+
+            await player2.send("Type HEADS or TAILS.")
+
+        if guess == choice:
+            result = "Player 2 wins!"
+        else:
+            result = "Player 1 wins!"
+
+        await asyncio.gather(
+            player1.send(result),
+            player2.send(result)
+        )
+
+    except websockets.exceptions.ConnectionClosed:
+        print("A player disconnected during the match.")
 
 
 async def game(websocket):
-    global player_choice, player_guess
+    async with lock:
+        waiting_players.append(websocket)
 
-    if len(players) >= 2:
-        await websocket.send("SERVER FULL")
-        return
-
-    players.append(websocket)
-    player_number = len(players)
-
-    print(f"Player {player_number} connected.")
-
-    await websocket.send(f"PLAYER {player_number}")
-
-    if player_number == 1:
-        await websocket.send("Waiting for Player 2...")
-
-    elif player_number == 2:
-        await send_to_all_players("Both players are connected!")
-
-        await players[0].send("Choose HEADS or TAILS.")
-
-        await players[1].send(
-            "You are Player 2. Wait for Player 1 to choose."
-        )
+        if len(waiting_players) >= 2:
+            player1 = waiting_players.pop(0)
+            player2 = waiting_players.pop(0)
+        else:
+            player1 = None
+            player2 = None
 
     try:
-        async for message in websocket:
-            message = message.strip().upper()
+        if player1 is None:
+            await websocket.send("Waiting for an opponent...")
+            return
 
-            print(f"Player {player_number} sent: {message}")
-
-            if message not in ("HEADS", "TAILS"):
-                await websocket.send(
-                    "Invalid input. Type HEADS or TAILS."
-                )
-                continue
-
-            if player_number == 1:
-                if player_choice is not None:
-                    await websocket.send(
-                        "Player 1 has already chosen."
-                    )
-                    continue
-
-                player_choice = message
-
-                await websocket.send(
-                    f"You selected {player_choice}."
-                )
-
-                if len(players) == 2:
-                    await players[1].send(
-                        "Player 1 has chosen. "
-                        "Enter HEADS or TAILS to guess."
-                    )
-
-            elif player_number == 2:
-                if player_choice is None:
-                    await websocket.send(
-                        "Wait for Player 1 to choose first."
-                    )
-                    continue
-
-                if player_guess is not None:
-                    await websocket.send(
-                        "You have already guessed."
-                    )
-                    continue
-
-                player_guess = message
-
-                if player_guess == player_choice:
-                    result = (
-                        "Player 2 wins! "
-                        "The guess was correct."
-                    )
-                else:
-                    result = (
-                        "Player 1 wins! "
-                        "The guess was incorrect."
-                    )
-
-                await send_to_all_players(
-                    f"Player 1 chose: {player_choice}"
-                )
-
-                await send_to_all_players(
-                    f"Player 2 guessed: {player_guess}"
-                )
-
-                await send_to_all_players(result)
-
-                await send_to_all_players(
-                    "Round finished. Restart the server "
-                    "before playing another round."
-                )
-
-                break
+        await play_game(player1, player2)
 
     except websockets.exceptions.ConnectionClosed:
-        print(f"Player {player_number} disconnected.")
+        print("A player disconnected.")
 
     finally:
-        if websocket in players:
-            players.remove(websocket)
-
-        player_choice = None
-        player_guess = None
-
-        print("Player disconnected. Game state reset.")
+        async with lock:
+            if websocket in waiting_players:
+                waiting_players.remove(websocket)
 
 
 port = int(os.environ.get("PORT", 10000))
@@ -134,9 +81,10 @@ async def main():
     async with websockets.serve(
         game,
         "0.0.0.0",
-        port
+        port,
+        max_size=1024
     ):
-        print("Online game server is running.")
+        print("Game server running. No hard-coded player limit.")
         await asyncio.Future()
 
 
