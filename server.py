@@ -22,7 +22,7 @@ async def play_game(player1, player2):
 
             await player1.send("Type HEADS or TAILS.")
 
-        await player1.send(f"You chose {choice}.")
+        await player2.send(f"Player 1 chose {choice}.")
         await player2.send("Guess HEADS or TAILS.")
 
         while True:
@@ -44,29 +44,32 @@ async def play_game(player1, player2):
         )
 
     except websockets.exceptions.ConnectionClosed:
-        print("A player disconnected during the match.")
+        print("A player disconnected during the game.")
 
 
 async def game(websocket):
-    async with lock:
-        waiting_players.append(websocket)
-
-        if len(waiting_players) >= 2:
-            player1 = waiting_players.pop(0)
-            player2 = waiting_players.pop(0)
-        else:
-            player1 = None
-            player2 = None
+    player1 = None
+    player2 = None
 
     try:
+        async with lock:
+            waiting_players.append(websocket)
+
+            if len(waiting_players) >= 2:
+                player1 = waiting_players.pop(0)
+                player2 = waiting_players.pop(0)
+
         if player1 is None:
             await websocket.send("Waiting for an opponent...")
+
+            # Keep this player's connection open.
+            await websocket.wait_closed()
             return
 
         await play_game(player1, player2)
 
     except websockets.exceptions.ConnectionClosed:
-        print("A player disconnected.")
+        print("Connection closed.")
 
     finally:
         async with lock:
@@ -84,7 +87,7 @@ async def main():
         port,
         max_size=1024
     ):
-        print("Game server running. No hard-coded player limit.")
+        print("Game server running.")
         await asyncio.Future()
 
 
