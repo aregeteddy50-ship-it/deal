@@ -7,6 +7,9 @@ lock = asyncio.Lock()
 
 
 async def play_game(player1, player2):
+    chooser = 1
+    round_number = 1
+
     try:
         await asyncio.gather(
             player1.send("MATCH STARTED"),
@@ -14,51 +17,74 @@ async def play_game(player1, player2):
         )
 
         while True:
-            # Player 1 chooses
-            await player1.send("Choose HEADS or TAILS.")
-            await player2.send("Wait for Player 1 to choose.")
+            await asyncio.gather(
+                player1.send(f"ROUND {round_number}"),
+                player2.send(f"ROUND {round_number}")
+            )
 
+            if chooser == 1:
+                choosing_player = player1
+                guessing_player = player2
+
+                await asyncio.gather(
+                    player1.send("Your turn: Choose HEADS or TAILS."),
+                    player2.send("Wait for Player 1 to choose.")
+                )
+            else:
+                choosing_player = player2
+                guessing_player = player1
+
+                await asyncio.gather(
+                    player2.send("Your turn: Choose HEADS or TAILS."),
+                    player1.send("Wait for Player 2 to choose.")
+                )
+
+            # Read the chooser's selection.
             while True:
-                choice = (await player1.recv()).strip().upper()
+                choice = (await choosing_player.recv()).strip().upper()
 
                 if choice in ("HEADS", "TAILS"):
                     break
 
-                await player1.send("Please choose HEADS or TAILS.")
+                await choosing_player.send("Please choose HEADS or TAILS.")
 
-            await player1.send(f"You chose {choice}.")
-            await player2.send(f"Player 1 chose {choice}.")
-            await player2.send("Guess HEADS or TAILS.")
+            await choosing_player.send(f"You chose {choice}.")
+            await guessing_player.send(
+                f"Your opponent chose {choice}."
+            )
+            await guessing_player.send("Your turn: Guess HEADS or TAILS.")
 
-            # Player 2 guesses
+            # Read the other player's guess.
             while True:
-                guess = (await player2.recv()).strip().upper()
+                guess = (await guessing_player.recv()).strip().upper()
 
                 if guess in ("HEADS", "TAILS"):
                     break
 
-                await player2.send("Please guess HEADS or TAILS.")
+                await guessing_player.send("Please guess HEADS or TAILS.")
 
-            # Determine the winner
             if guess == choice:
-                result = "Player 2 wins!"
+                result = "Guesser wins!"
             else:
-                result = "Player 1 wins!"
+                result = "Chooser wins!"
 
             await asyncio.gather(
-                player1.send(result),
-                player2.send(result)
+                player1.send(
+                    f"Round {round_number}: {result}"
+                ),
+                player2.send(
+                    f"Round {round_number}: {result}"
+                )
             )
 
-            # Brief pause before the next round
+            # Switch roles for the next round.
+            chooser = 2 if chooser == 1 else 1
+            round_number += 1
+
             await asyncio.sleep(3)
 
     except websockets.exceptions.ConnectionClosed:
         print("A player disconnected.")
-
-        for player in (player1, player2):
-            if player.closed if hasattr(player, "closed") else False:
-                continue
 
 
 async def game(websocket):
